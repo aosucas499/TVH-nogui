@@ -4,7 +4,7 @@ import os
 
 def cargar_configuracion():
     config = configparser.ConfigParser()
-    config.read('configuracion.conf')
+    config.read('server.conf')
     return config
 
 def guardar_configuracion(usuario, contraseña, ip_servidor, puerto):
@@ -15,7 +15,7 @@ def guardar_configuracion(usuario, contraseña, ip_servidor, puerto):
         'ip_servidor': ip_servidor,
         'puerto': puerto
     }
-    with open('configuracion.conf', 'w') as configfile:
+    with open('server.conf', 'w') as configfile:
         config.write(configfile)
 
 def obtener_credenciales():
@@ -48,22 +48,22 @@ def descargar_lista_canales():
         # Verificar si la solicitud fue exitosa (código de estado 200)
         if respuesta.status_code == 200:
             # Guardar el contenido en un archivo local
-            with open("lista_canales.m3u", "wb") as archivo:
+            with open("channel_list.m3u", "wb") as archivo:
                 archivo.write(respuesta.content)
             print("Archivo M3U descargado con éxito.")
         else:
     	    # Mostrar el mensaje de error
             print(f"Error al descargar la lista de canales. Código de estado: {respuesta.status_code}")
             # Borrar el archivo de configuración
-            if os.path.isfile("configuracion.conf"):
-                os.remove("configuracion.conf")
+            if os.path.isfile("server.conf"):
+                os.remove("server.conf")
 
     except requests.RequestException as e:
     	# Mostrar el mensaje de error
         print(f"Error de conexión: {e}")
         # Borrar el archivo de configuración
-        if os.path.isfile("configuracion.conf"):
-        	os.remove("configuracion.conf")
+        if os.path.isfile("server.conf"):
+        	os.remove("server.conf")
 
 if __name__ == "__main__":
     descargar_lista_canales()
