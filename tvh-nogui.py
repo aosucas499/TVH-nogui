@@ -98,7 +98,7 @@ def reproducir_canal(nombre_canal, config):
     url = f"http://{config['TVHEADEND_USERNAME']}:{config['TVHEADEND_PASSWORD']}@{config['TVHEADEND_IP']}/stream/channelnumber/{numero_canal}?profile=pass"
 
     # Construir el comando para reproducir el canal en omxplayer
-    comando = ["/usr/bin/omxplayer", f"{url}"]
+    comando = ["/usr/bin/mpv", f"{url}"]
 
     # Imprimir mensajes de depuración
     if debug:
@@ -141,6 +141,7 @@ def main():
         # Verificar si el usuario quiere salir
         if seleccion == '0':
             print("\nSaliendo del programa.")
+            os.system("pkill -9 mpv")
             break
 
         try:
@@ -152,7 +153,7 @@ def main():
                 print(f"Reproduciendo el canal: {canal_seleccionado}")
 
                 # Matar todos los procesos omxplayer
-                os.system("pkill -9 omxplayer")
+                os.system("pkill -9 mpv")
 
                 # Reproducir el canal seleccionado
                 reproducir_canal(canal_seleccionado, configuracion_tvheadend)
@@ -162,7 +163,7 @@ def main():
             print("Entrada no válida.")
 
         # Matar todos los procesos omxplayer
-        subprocess.run(["pkill", "-9", "omxplayer"], check=True)
+        subprocess.run(["pkill", "-9", "mpv"], check=True)
 
         # Reproducir el canal seleccionado
         reproducir_canal(canal_seleccionado, configuracion_tvheadend)
