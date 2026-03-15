@@ -55,7 +55,7 @@ def obtener_lista_canales(config):
         print(f"\n[!] Error conectando a TVHeadend: {e}")
         return []
 
-ddef reproducir_canal(numero_canal, config):
+def reproducir_canal(numero_canal, config):
     # Matar instancias previas
     subprocess.run(["pkill", "-9", "mpv"], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
     
