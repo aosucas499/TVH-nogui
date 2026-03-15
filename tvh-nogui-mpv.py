@@ -56,26 +56,36 @@ def obtener_lista_canales(config):
         return []
 
 def reproducir_canal(numero_canal, config):
-    # 1. Limpieza total de procesos previos
+    # Matar procesos previos
     subprocess.run(["pkill", "-9", "mpv"], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
     
-    # 2. Construcción de URL
+    host = config['TVHEADEND_IP']
     user = config['TVHEADEND_USERNAME']
     pw = config['TVHEADEND_PASSWORD']
-    host = config['TVHEADEND_IP']
-    url = f"http://{user}:{pw}@{host}/stream/channelnumber/{numero_canal}?profile=pass"
     
-    # 3. Comando con salida de errores visible temporalmente para diagnosticar
-    # Quitamos el redireccionamiento a DEVNULL para ver si MPV nos dice algo
-    comando = ["mpv", "--ontop", "--no-border", url]
+    # URL Limpia (sin usuario:pass@)
+    url = f"http://{host}/stream/channelnumber/{numero_canal}"
     
-    print(f"DEBUG: Intentando abrir {url}") # Esto te dirá si la URL es correcta
+    # Pasamos el usuario y pass de forma segura a través de los flags de MPV
+    comando = [
+        "mpv", 
+        "--ontop", 
+        "--no-border", 
+        f"--http-header-fields=Authorization: Basic " + 
+        # Esto envía las credenciales de forma estándar
+        subprocess.check_output(f"echo -n {user}:{pw} | base64", shell=True).decode().strip(),
+        url
+    ]
+    
+    # Si lo anterior te parece muy complejo, prueba primero con esta versión más simple:
+    # comando = ["mpv", "--ontop", "--no-border", f"--user={user}", f"--password={pw}", url]
+
+    print(f">> Intentando conectar a: {url}")
     
     try:
-        # Lanzamos MPV permitiendo que los errores se vean en la terminal
-        subprocess.Popen(comando) 
-    except FileNotFoundError:
-        print("\n[!] ERROR: No se encontró 'mpv'.")
+        subprocess.Popen(comando)
+    except Exception as e:
+        print(f"Error al lanzar MPV: {e}")
         
 def main():
     # Guardar estado de la terminal para restaurarla al final
