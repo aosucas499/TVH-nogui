@@ -56,27 +56,27 @@ def obtener_lista_canales(config):
         return []
 
 def reproducir_canal(numero_canal, config):
-    # Matar instancias previas
+    # 1. Limpieza total de procesos previos
     subprocess.run(["pkill", "-9", "mpv"], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
     
+    # 2. Construcción de URL
     user = config['TVHEADEND_USERNAME']
     pw = config['TVHEADEND_PASSWORD']
     host = config['TVHEADEND_IP']
     url = f"http://{user}:{pw}@{host}/stream/channelnumber/{numero_canal}?profile=pass"
     
+    # 3. Comando con salida de errores visible temporalmente para diagnosticar
+    # Quitamos el redireccionamiento a DEVNULL para ver si MPV nos dice algo
     comando = ["mpv", "--ontop", "--no-border", url]
     
+    print(f"DEBUG: Intentando abrir {url}") # Esto te dirá si la URL es correcta
+    
     try:
-        subprocess.Popen(comando, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Lanzamos MPV permitiendo que los errores se vean en la terminal
+        subprocess.Popen(comando) 
     except FileNotFoundError:
-        print("\n[!] ERROR: No se encontró 'mpv'. Instálalo con: sudo apt install mpv")
-        input("Pulsa Enter para continuar...") # Pausa para que el usuario lea el error
-    
-    if debug: print(f"Ejecutando: {' '.join(comando)}")
-    
-    # Lanzar en segundo plano sin bloquear el script
-    subprocess.Popen(comando, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
+        print("\n[!] ERROR: No se encontró 'mpv'.")
+        
 def main():
     # Guardar estado de la terminal para restaurarla al final
     fd = sys.stdin.fileno()
