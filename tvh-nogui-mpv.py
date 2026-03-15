@@ -12,7 +12,6 @@ import select
 import time
 
 # --- CONFIGURACIÓN ---
-debug = False
 CONFIG_FILE_PATH = os.path.join(os.path.expanduser("~"), "tvheadend_config.json")
 
 def obtener_configuracion_tvheadend():
@@ -21,7 +20,7 @@ def obtener_configuracion_tvheadend():
             return json.load(file)
     else:
         config = {
-            "TVHEADEND_IP": input("Ingrese IP:Puerto: "),
+            "TVHEADEND_IP": input("Ingrese IP:Puerto (ej: 192.168.1.3:9981): "),
             "TVHEADEND_USERNAME": input("Usuario: "),
             "TVHEADEND_PASSWORD": input("Contraseña: "),
         }
@@ -35,7 +34,7 @@ def obtener_lista_canales(config):
         response = requests.get(
             url, 
             auth=HTTPDigestAuth(config['TVHEADEND_USERNAME'], config['TVHEADEND_PASSWORD']), 
-            params={"limit": 200},
+            params={"limit": 300}, # Aumentamos el límite de la API
             timeout=5
         )
         data = response.json()
@@ -49,15 +48,14 @@ def reproducir_canal(numero_canal, config):
     subprocess.run("pkill -9 mpv > /dev/null 2>&1", shell=True)
     user, pw, host = config['TVHEADEND_USERNAME'], config['TVHEADEND_PASSWORD'], config['TVHEADEND_IP']
     url = f"http://{user}:{pw}@{host}/stream/channelnumber/{numero_canal}"
+    # Agregamos --geometry para que no tape toda la terminal si quieres
     subprocess.Popen(["mpv", "--ontop", "--no-border", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 def leer_tecla_con_timeout(timeout=1.2):
-    """Espera una tecla durante un tiempo determinado."""
     fd = sys.stdin.fileno()
     old_settings = termios.tcgetattr(fd)
     try:
         tty.setcbreak(fd)
-        # Esperar a que haya algo que leer en el buffer de entrada
         rlist, _, _ = select.select([sys.stdin], [], [], timeout)
         if rlist:
             return sys.stdin.read(1)
@@ -65,60 +63,69 @@ def leer_tecla_con_timeout(timeout=1.2):
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
-def obtener_seleccion_inteligente():
-    """Permite escribir varios números y sintoniza tras una pausa."""
+def obtener_seleccion_mando():
     acumulado = ""
-    print("\nEscribe el número del canal: ", end='', flush=True)
-    
+    print("\nSintonizar canal nº: ", end='', flush=True)
     while True:
-        # La primera tecla espera infinito, las siguientes esperan 1.2 segundos
-        timeout = None if not acumulado else 1.2
+        timeout = None if not acumulado else 1.0 # 1 segundo de espera tras la primera tecla
         tecla = leer_tecla_con_timeout(timeout)
-        
-        if tecla is None: # Se acabó el tiempo
-            break
-        
-        if tecla == '0' and not acumulado:
-            return "0"
-        
+        if tecla is None: break
+        if tecla == '0' and not acumulado: return "0"
         if tecla.isdigit():
             acumulado += tecla
             print(tecla, end='', flush=True)
-        else:
-            # Si pulsas algo que no es un número (como espacio), sintoniza ya
-            break
-            
+        else: break
     return acumulado
 
 def main():
     config = obtener_configuracion_tvheadend()
     canales = obtener_lista_canales(config)
     
+    if not canales:
+        print("Error: No se pudieron cargar canales de TVHeadend.")
+        return
+
     while True:
         os.system('clear')
-        print("=== TVH PLAYER (Modo Mando TV) ===")
-        for i, (num, nombre) in enumerate(canales, start=1):
-            if i <= 30: print(f"{i}. [{num}] {nombre}")
+        print("=== TVH MANDO A DISTANCIA (MPV) ===")
+        print("-" * 60)
         
-        print(f"\nPulsa números para sintonizar (0 para salir).")
+        # LÓGICA DE COLUMNAS: Mostramos hasta 90 canales en 3 columnas
+        max_canales_mostrar = min(len(canales), 90)
+        filas = (max_canales_mostrar + 2) // 3 # Calculamos filas necesarias
         
-        seleccion = obtener_seleccion_inteligente()
+        for f in range(filas):
+            linea = ""
+            for c in range(3): # 3 columnas
+                idx = f + (c * filas)
+                if idx < len(canales):
+                    num_lista = idx + 1
+                    num_tvh = canales[idx][0]
+                    nombre = canales[idx][1][:15] # Cortamos nombre si es muy largo
+                    linea += f"{num_lista:>2}. [{num_tvh:>2}] {nombre:<18} | "
+            print(linea)
+
+        print("-" * 60)
+        print("Escribe el nº de la lista y espera un momento... (0 para salir)")
+        
+        seleccion = obtener_seleccion_mando()
         
         if seleccion == "0":
             subprocess.run("pkill -9 mpv > /dev/null 2>&1", shell=True)
+            print("\nApagando...")
             break
             
         if seleccion:
             try:
                 indice = int(seleccion) - 1
                 if 0 <= indice < len(canales):
-                    num_canal = canales[indice][0]
-                    print(f"\n>> Sintonizando {canales[indice][1]}...")
-                    reproducir_canal(num_canal, config)
+                    num_tvh = canales[indice][0]
+                    print(f"\n>> OK: {canales[indice][1]}")
+                    reproducir_canal(num_tvh, config)
                     time.sleep(1)
                 else:
-                    print("\n[!] Número no válido.")
-                    time.sleep(1)
+                    print("\n[!] Error: El número no está en la lista.")
+                    time.sleep(1.5)
             except ValueError:
                 pass
 
