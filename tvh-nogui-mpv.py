@@ -55,17 +55,22 @@ def obtener_lista_canales(config):
         print(f"\n[!] Error conectando a TVHeadend: {e}")
         return []
 
-def reproducir_canal(numero_canal, config):
-    # Matar instancias previas de MPV de forma silenciosa
+ddef reproducir_canal(numero_canal, config):
+    # Matar instancias previas
     subprocess.run(["pkill", "-9", "mpv"], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
     
-    # Construir URL de streaming
     user = config['TVHEADEND_USERNAME']
     pw = config['TVHEADEND_PASSWORD']
     host = config['TVHEADEND_IP']
     url = f"http://{user}:{pw}@{host}/stream/channelnumber/{numero_canal}?profile=pass"
     
-    comando = ["mpv", "--ontop", "--no-border", "--title=TVH-Python", url]
+    comando = ["mpv", "--ontop", "--no-border", url]
+    
+    try:
+        subprocess.Popen(comando, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except FileNotFoundError:
+        print("\n[!] ERROR: No se encontró 'mpv'. Instálalo con: sudo apt install mpv")
+        input("Pulsa Enter para continuar...") # Pausa para que el usuario lea el error
     
     if debug: print(f"Ejecutando: {' '.join(comando)}")
     
