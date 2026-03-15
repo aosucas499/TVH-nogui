@@ -4,141 +4,169 @@ import os
 import requests
 from requests.auth import HTTPDigestAuth
 import subprocess
+import time
 import json
 import sys
 import termios
+import tty
 
-# --- CONFIGURACIÓN ---
-debug = False
+debug = True
+
+# Ruta al archivo de configuración
 CONFIG_FILE_PATH = os.path.join(os.path.expanduser("~"), "tvheadend_config.json")
 
 def obtener_configuracion_tvheadend():
+    # Verificar si existe un archivo de configuración previo
     if os.path.exists(CONFIG_FILE_PATH):
         with open(CONFIG_FILE_PATH, "r") as file:
-            return json.load(file)
+            config = json.load(file)
     else:
+        # Si no hay un archivo de configuración, solicitar la configuración al usuario
         config = {
-            "TVHEADEND_IP": input("IP y Puerto (ej: 192.168.1.50:9981): "),
-            "TVHEADEND_USERNAME": input("Usuario: "),
-            "TVHEADEND_PASSWORD": input("Contraseña: "),
+            "TVHEADEND_IP": input("Ingrese la dirección IP y el puerto de TVHeadend: "),
+            "TVHEADEND_USERNAME": input("Ingrese el nombre de usuario de TVHeadend: "),
+            "TVHEADEND_PASSWORD": input("Ingrese la contraseña de TVHeadend: "),
         }
+
+        # Guardar la configuración en el archivo
         with open(CONFIG_FILE_PATH, "w") as file:
             json.dump(config, file, indent=2)
-        return config
+
+    return config
 
 def obtener_lista_canales(config):
+
+    # Obtener la lista de canales desde TVHeadend con autenticación digest
     url = f"http://{config['TVHEADEND_IP']}/api/channel/grid"
-    parametros = {"limit": 500, "meta": 0}
-    
+    filter = {
+        "field": "number",
+        "value": 0
+    }
+
+    # Configurar los parámetros de la solicitud
+    parametros = {
+        "limit": 100,  # Limitar a 500 canales para fines de depuración
+        "meta": 0
+    }
+
     try:
-        response = requests.get(
-            url, 
-            auth=HTTPDigestAuth(config['TVHEADEND_USERNAME'], config['TVHEADEND_PASSWORD']), 
-            params=parametros,
-            timeout=10
-        )
-        response.raise_for_status()
-        data = response.json()
-        
-        # Extraemos número y nombre, asegurando que el número sea entero para ordenar
-        canales = []
-        for c in data.get('entries', []):
-            canales.append({
-                "numero": int(c.get('number', 0)),
-                "nombre": c.get('name', 'S/N')
-            })
-        
-        # Ordenar por número de canal
-        canales.sort(key=lambda x: x['numero'])
-        return canales
-    except Exception as e:
-        print(f"\n[!] Error conectando a TVHeadend: {e}")
+        response = requests.get(url, auth=HTTPDigestAuth(config['TVHEADEND_USERNAME'], config['TVHEADEND_PASSWORD']), params=parametros)
+        response.raise_for_status()  # Verificar si hay errores en la respuesta
+    except requests.exceptions.RequestException as e:
+        print(f"Error en la solicitud de la API: {e}")
         return []
 
-def reproducir_canal(numero_canal, config):
-    # Matar procesos previos
-    subprocess.run(["pkill", "-9", "mpv"], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
-    
-    host = config['TVHEADEND_IP']
-    user = config['TVHEADEND_USERNAME']
-    pw = config['TVHEADEND_PASSWORD']
-    
-    # URL Limpia (sin usuario:pass@)
-    url = f"http://{host}/stream/channelnumber/{numero_canal}"
-    
-    # Pasamos el usuario y pass de forma segura a través de los flags de MPV
-    comando = [
-        "mpv", 
-        "--ontop", 
-        "--no-border", 
-        f"--http-header-fields=Authorization: Basic " + 
-        # Esto envía las credenciales de forma estándar
-        subprocess.check_output(f"echo -n {user}:{pw} | base64", shell=True).decode().strip(),
-        url
-    ]
-    
-    # Si lo anterior te parece muy complejo, prueba primero con esta versión más simple:
-    # comando = ["mpv", "--ontop", "--no-border", f"--user={user}", f"--password={pw}", url]
+    if debug:
+        # Imprimir mensajes de depuración
+        print(f"Debug - URL de la solicitud: {response.url}")
+        print(f"Debug - Respuesta de la solicitud: {response.text}")
 
-    print(f">> Intentando conectar a: {url}")
-    
     try:
-        subprocess.Popen(comando)
-    except Exception as e:
-        print(f"Error al lanzar MPV: {e}")
-        
+        data = response.json()
+    except json.JSONDecodeError as e:
+        print(f"Error al decodificar la respuesta JSON: {e}")
+        return []
+
+    # Obtener canales activos sin filtrar
+    canales_activos = [(channel['number'], channel['name']) for channel in data.get('entries', [])]
+    
+    if debug:
+        # Imprimir información detallada sobre los canales
+        print("Debug - Información detallada de los canales:")
+        for channel in data.get('entries', []):
+             number = channel.get('number', 'N/A')
+             name = channel.get('name', 'N/A')
+             enabled = channel.get('enabled', 'N/A')
+             print(f"Debug - Canal: {number} - {name} (Habilitado: {enabled})")
+
+    # Ordenar por el número del canal
+    canales_activos.sort(key=lambda x: x[0])
+
+    return canales_activos
+
+import subprocess
+
+def reproducir_canal(nombre_canal, config):
+    # Obtener el número del canal a partir del nombre
+    canales = obtener_lista_canales(config)
+    for canal in canales:
+        if canal[1] == nombre_canal:
+            numero_canal = canal[0]
+            break
+
+    # Construir la URL del flujo del canal usando el número del canal y las credenciales
+    url = f"http://{config['TVHEADEND_USERNAME']}:{config['TVHEADEND_PASSWORD']}@{config['TVHEADEND_IP']}/stream/channelnumber/{numero_canal}?profile=pass"
+
+    # Construir el comando para reproducir el canal en omxplayer
+    comando = ["/usr/bin/mpv", f"{url}"]
+
+    # Imprimir mensajes de depuración
+    if debug:
+        print(f"Debug - Comando para reproducir el canal: {' '.join(comando)}")
+
+    # Redirigir la salida estándar y estándar de error a /dev/null (o puedes redirigir a un archivo si prefieres)
+    with open(os.devnull, 'w') as devnull:
+        # Ejecutar el comando en un proceso separado
+        subprocess.Popen(comando, stdout=devnull, stderr=devnull)
+
+def obtener_tecla():
+    termios.tcgetattr(sys.stdin)
+    tty.setcbreak(sys.stdin)
+    return sys.stdin.read(1)
+
 def main():
-    # Guardar estado de la terminal para restaurarla al final
-    fd = sys.stdin.fileno()
-    old_settings = termios.tcgetattr(fd)
-    
-    try:
-        config = obtener_configuracion_tvheadend()
-        canales = obtener_lista_canales(config)
+    while True:
+
+	# Obtener o solicitar la configuración de TVHeadend
+        configuracion_tvheadend = obtener_configuracion_tvheadend()
+
+        # Obtener la lista de canales activos sin ordenar
+        canales = obtener_lista_canales(configuracion_tvheadend)
+
+        # Ordenar la lista de canales por el número del canal
+        canales.sort(key=lambda x: x[0])
+
+    	# Imprimir la lista de canales
+        print("Canales disponibles:")
+        for i, (numero, canal) in enumerate(canales, start=1):
+             print(f"{i}. {numero}: {canal}")
+
+    	# Solicitar al usuario que elija un canal sin pulsar "Enter"
+        print("Seleccione el número del canal que desea ver (0 para salir): ", end='', flush=True)
+
+        seleccion = ''
+        while seleccion == '':
+            seleccion = obtener_tecla()
+
+        # Verificar si el usuario quiere salir
+        if seleccion == '0':
+            print("\nSaliendo del programa.")
+            os.system("pkill -9 mpv")
+            break
+
+        try:
+            seleccion = int(seleccion) - 1
+
+            # Verificar si la selección es válida
+            if 0 <= seleccion < len(canales):
+                canal_seleccionado = canales[seleccion][1]
+                print(f"Reproduciendo el canal: {canal_seleccionado}")
+
+                # Matar todos los procesos omxplayer
+                os.system("pkill -9 mpv")
+
+                # Reproducir el canal seleccionado
+                reproducir_canal(canal_seleccionado, configuracion_tvheadend)
+            else:
+                print("Selección inválida.")
+        except ValueError:
+            print("Entrada no válida.")
+
+        # Matar todos los procesos omxplayer
+        subprocess.run(["pkill", "-9", "mpv"], check=True)
+
+        # Reproducir el canal seleccionado
+        reproducir_canal(canal_seleccionado, configuracion_tvheadend)
         
-        if not canales:
-            print("No se encontraron canales. Revisa la configuración.")
-            return
-
-        while True:
-            os.system('clear')
-            print("=== TVHEADEND NOGUI PLAYER ===")
-            print(f"Canales cargados: {len(canales)}\n")
-            
-            # Mostrar lista (puedes ajustar el rango si tienes cientos)
-            for c in canales[:40]: # Mostramos los primeros 40
-                print(f"{c['numero']:>3}: {c['nombre']}")
-            
-            print("\n[ 0: Salir | Escribe el número del canal y pulsa Enter ]")
-            
-            try:
-                seleccion = input("\nSelección: ")
-                
-                if seleccion == '0':
-                    print("Saliendo...")
-                    subprocess.run(["pkill", "-9", "mpv"], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
-                    break
-                
-                num_seleccionado = int(seleccion)
-                
-                # Buscar si el número existe en nuestra lista
-                canal_valido = next((c for c in canales if c['numero'] == num_seleccionado), None)
-                
-                if canal_valido:
-                    print(f">> Sintonizando: {canal_valido['nombre']}...")
-                    reproducir_canal(num_seleccionado, config)
-                else:
-                    print("Ese número de canal no existe.")
-                    
-            except ValueError:
-                print("Por favor, introduce un número válido.")
-            
-    except KeyboardInterrupt:
-        print("\nInterrumpido por el usuario.")
-    finally:
-        # Restaurar la terminal SIEMPRE
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-        print("Terminal restaurada correctamente.")
-
 if __name__ == "__main__":
-    main()
+   main()
